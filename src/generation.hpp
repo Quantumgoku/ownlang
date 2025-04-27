@@ -2,65 +2,84 @@
 #include "parser.hpp"
 #include<sstream>
 #include<unordered_map>
+#include<cassert>
 using namespace std;
 class Generator{
 public:
     inline explicit Generator(NodeProg prog) : m_prog(move(prog)){
     }
 
-    void gen_expr(const NodeExpr& expr){
-        struct ExprVisitor{
+    void gen_term(const NodeTerm* term){
+        struct TermVisitor{
             Generator* gen;
-
-            void operator()(const NodeExpIntLit& expr_int_lit){
-                gen->m_output<<"    mov rax,"<<expr_int_lit.int_lit.value.value()<<"\n";
+            void operator()(const NodeTermIntLit* term_int_lit) const{
+                gen->m_output<<"    mov rax,"<<term_int_lit->int_lit.value.value()<<"\n";
                 gen->push("rax");
             }
-
-            void operator()(const NodeExpIdent& expr_ident){
-                if(!gen->m_vars.contains(expr_ident.ident.value.value())){
-                    cerr<<"Variable "<<expr_ident.ident.value.value()<<" not defined"<<endl;
+            void operator()(const NodeTermIdent* term_ident) const{
+                if(!gen->m_vars.contains(term_ident->ident.value.value())){
+                    cerr<<"Variable "<<term_ident->ident.value.value()<<" not defined"<<endl;
                     exit(EXIT_FAILURE);
                 }
-                const auto& vars=gen->m_vars.at(expr_ident.ident.value.value());
+                const auto& vars=gen->m_vars.at(term_ident->ident.value.value());
                 stringstream offset;
                 offset<<"QWORD [rsp+"<<(gen->m_stack_size-vars.stack_loc-1)*8<<"]\n";
                 gen->push(offset.str());
             }
         };
+        TermVisitor visitor({.gen=this});
+        visit(visitor,term->var);
+    }
+
+    void gen_expr(const NodeExpr* expr){
+        struct ExprVisitor{
+            Generator* gen;
+
+            void operator()(const NodeTerm* term) const{
+                gen->gen_term(term);
+            }
+            void operator()(const NodeBinExpr* bin_expr) const {
+                gen->gen_expr(bin_expr->add->lhs);
+                gen->gen_expr(bin_expr->add->rhs);
+                gen->pop("rdi");
+                gen->pop("rax");
+                gen->m_output<<"    add rax, rdi\n";
+                gen->push("rax");
+            }
+        };
         ExprVisitor visitor{.gen=this};
-        visit(visitor,expr.var);
+        visit(visitor,expr->var);
     }
  
-    void gen_stmt(const Nodestmt& stmt){
+    void gen_stmt(const Nodestmt* stmt){
         struct StmtVisitor{
             Generator* gen;
-            void operator()(const NodeStmtExit& stmt_exit) const {
-                gen->gen_expr(stmt_exit.expr);
+            void operator()(const NodeStmtExit* stmt_exit) const {
+                gen->gen_expr(stmt_exit->expr);
                 gen->m_output<<"    mov rax, 60\n";
                 gen->pop("rdi");
                 gen->m_output<<"    syscall\n";
             }
 
-            void operator()(const NodeStmtLet& stmt_let){
-                if(gen->m_vars.contains(stmt_let.ident.value.value())){
-                    cerr<<"Variable "<<stmt_let.ident.value.value()<<" already defined"<<endl;
+            void operator()(const NodeStmtLet* stmt_let){
+                if(gen->m_vars.contains(stmt_let->ident.value.value())){
+                    cerr<<"Variable "<<stmt_let->ident.value.value()<<" already defined"<<endl;
                     exit(EXIT_FAILURE);
                 }
-                gen->m_vars.insert({stmt_let.ident.value.value(), Var{.stack_loc=gen->m_stack_size}});
-                gen->gen_expr(stmt_let.expr);
+                gen->m_vars.insert({stmt_let->ident.value.value(), Var{.stack_loc=gen->m_stack_size}});
+                gen->gen_expr(stmt_let->expr);
 
             }
         };
 
         StmtVisitor visitor{.gen=this};
-        visit(visitor,stmt.var);
+        visit(visitor,stmt->var);
     }
 
     [[nodiscard]]string gen_prog(){
         m_output<<"bits 64\nsection .text\nglobal _start\n_start:\n";
 
-        for (const Nodestmt& stmt: m_prog.stmts){
+        for (const Nodestmt* stmt: m_prog.stmts){
             gen_stmt(stmt);
         }
 

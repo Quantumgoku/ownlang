@@ -1,4 +1,3 @@
-let x=9;
-let y=8;
-let z=10;
+let x=1+2+6;
+let y=9;
 exit(x);

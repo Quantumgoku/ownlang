@@ -29,7 +29,7 @@ int main(int argc, char* argv[]){
     }
     Tokenizer tokenizer(contents);
     vector<Token> tokens=tokenizer.tokenize();
-
+    
     Parser parser(tokens);
     optional<NodeProg> prog = parser.parse_prog();
     if(!prog.has_value()){

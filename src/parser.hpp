@@ -1,5 +1,6 @@
 #pragma once
 #include <variant>
+#include<cassert>
 
 #include "./arena.hpp"
 #include "tokenization.hpp"
@@ -17,26 +18,43 @@ struct NodeTermIdent
 
 struct NodeExpr;
 
+struct NodeTermParen{
+    NodeExpr* expr;
+};
+
+
 struct NodeBinExprAdd
 {
     NodeExpr *lhs;
     NodeExpr *rhs;
 };
 
-// struct NodeBinExprMulti
-// {
-//     NodeExpr *lhs;
-//     NodeExpr *rhs;
-// };
+struct NodeBinExprMulti
+{
+    NodeExpr *lhs;
+    NodeExpr *rhs;
+};
+
+struct NodeBinExprSub
+{
+    NodeExpr *lhs;
+    NodeExpr *rhs;
+};
+
+struct NodeBinExprDiv
+{
+    NodeExpr *lhs;
+    NodeExpr *rhs;
+};
 
 struct NodeBinExpr
 {
-    NodeBinExprAdd* add;
+    variant<NodeBinExprAdd *, NodeBinExprMulti *, NodeBinExprDiv*, NodeBinExprSub*> var;
 };
 
 struct NodeTerm
 {
-    variant<NodeTermIntLit *, NodeTermIdent *> var;
+    variant<NodeTermIntLit *, NodeTermIdent *,NodeTermParen*> var;
 };
 
 struct NodeExpr
@@ -88,53 +106,85 @@ public:
             term->var = term_ident;
             return term;
         }
+        else if(auto open_paren = try_consume(TokenType::open_paren)){
+            auto expr = parse_expr();
+            if(!expr.has_value()){
+                cerr<<"Expected expression"<<endl;
+                exit(EXIT_FAILURE);
+            }
+            try_consume(TokenType::close_paren, "Expected ')'");
+            auto term_paren = m_allocator.alloc<NodeTermParen>();
+            term_paren->expr = expr.value();
+            auto term = m_allocator.alloc<NodeTerm>();
+            term->var = term_paren;
+            return term;
+        }
         else
         {
             return {};
         }
     }
 
-    optional<NodeExpr *> parse_expr()
+    optional<NodeExpr *> parse_expr(int min_prec = 0)
     {
-        if (auto term = parse_term())
-        {
-            if (try_consume(TokenType::plus).has_value())
-            {
-                auto bin_expr = m_allocator.alloc<NodeBinExpr>();
-                auto bin_expr_add = m_allocator.alloc<NodeBinExprAdd>();
-                auto lhs_expr = m_allocator.alloc<NodeExpr>();
-                lhs_expr->var = term.value();
-                bin_expr_add->lhs = lhs_expr;
-                if (auto rhs = parse_expr())
-                {
-                    bin_expr_add->rhs = rhs.value();
-                    bin_expr->add = bin_expr_add;
-                    auto expr = m_allocator.alloc<NodeExpr>();
-                    expr->var = bin_expr;
-                    return expr;
-                }
-                else
-                {
-                    cerr << "Expected expression after '+'" << endl;
-                    exit(EXIT_FAILURE);
-                }
-            }
-            else
-            {
-                auto expr = m_allocator.alloc<NodeExpr>();
-                expr->var = term.value();
-                return expr;
-            }
-        }
-        else
-        {
+        optional<NodeTerm*> term_lhs = parse_term();
+        if(!term_lhs.has_value()){
             return {};
         }
+        auto expr_lhs = m_allocator.alloc<NodeExpr>();
+        expr_lhs->var = term_lhs.value();
+        while(true){
+            optional<Token> curr_token = peek();
+            optional<int> prec;
+            if(curr_token.has_value()){
+                prec = bin_prec(curr_token->type);
+                if(!prec.has_value() || prec<min_prec){
+                    break;
+                }
+            }else{
+                break;
+            }
+            Token op = consume();
+            int next_min_prec = prec.value() +1;
+            auto expr_rhs = parse_expr(next_min_prec);
+            if(!expr_rhs.has_value()){
+                cerr<<"Unable to parse Expression"<<endl;
+                exit(EXIT_FAILURE);
+            }
+            auto expr = m_allocator.alloc<NodeBinExpr>();
+            auto expr_lhs2 = m_allocator.alloc<NodeExpr>();
+            expr_lhs2->var = expr_lhs->var;
+            if(op.type == TokenType::plus){
+                auto add = m_allocator.alloc<NodeBinExprAdd>();
+                add->lhs = expr_lhs2;
+                add->rhs = expr_rhs.value();
+                expr->var = add;
+            }else if(op.type == TokenType::star){
+                auto multi = m_allocator.alloc<NodeBinExprMulti>();
+                multi->lhs = expr_lhs2;
+                multi->rhs = expr_rhs.value();
+                expr->var = multi;
+            }else if(op.type == TokenType::sub){
+                auto sub = m_allocator.alloc<NodeBinExprSub>();
+                sub->lhs = expr_lhs2;
+                sub->rhs = expr_rhs.value();
+                expr->var = sub;
+            }else if(op.type == TokenType::div){
+                auto div = m_allocator.alloc<NodeBinExprDiv>();
+                div->lhs = expr_lhs2;
+                div->rhs = expr_rhs.value();
+                expr->var = div;
+            }else{
+                assert(false && "Unknown operator");
+            }
+            expr_lhs->var = expr;
+        }
+        return expr_lhs;
     }
 
     optional<Nodestmt *> parse_stmt()
     {
-        if (peek().value().type == TokenType::exit && peek(1).has_value() && peek(1).value().type == TokenType::open_paren)
+        if (peek().has_value() && peek().value().type == TokenType::exit && peek(1).has_value() && peek(1).value().type == TokenType::open_paren)
         {
             consume();
             consume();
@@ -148,8 +198,8 @@ public:
                 cerr << "Error parsing expression" << endl;
                 exit(EXIT_FAILURE);
             }
-            try_consume(TokenType::close_paren, "Expected ')' after expression" );
-            try_consume(TokenType::semi, "Expected ';' after expression" );
+            try_consume(TokenType::close_paren, "Expected 'param' after expression" );
+            try_consume(TokenType::semi, "Expected stmt 1 ';' after expression" );
             auto stmt = m_allocator.alloc<Nodestmt>();
             stmt->var = stmt_exit;
             return stmt;
@@ -158,8 +208,8 @@ public:
         {
             consume();
             auto stmt_let = m_allocator.alloc<NodeStmtLet>();
-            stmt_let->ident = consume();
-            consume();
+            stmt_let->ident = try_consume(TokenType::ident, "Expected identifier after 'let'");
+            try_consume(TokenType::eq, "Expected '=' after identifier");
             if (auto expr = parse_expr())
             {
                 stmt_let->expr = expr.value();
@@ -169,13 +219,14 @@ public:
                 cerr << "Error parsing expression" << endl;
                 exit(EXIT_FAILURE);
             }
-            try_consume(TokenType::semi, "Expected ';' after expression" );
+            try_consume(TokenType::semi, "Expected stmt 2 ';' after expression" );
             auto stmt = m_allocator.alloc<Nodestmt>();
             stmt->var = stmt_let;
             return stmt;
         }
         else
         {
+            cerr<<"Error parsing statement" << endl;
             return {};
         }
     }

@@ -17,19 +17,22 @@ enum class TokenType
     eq,
     plus,
     star,
-    sub,
-    div
+    minus,
+    fslash,
+    open_curly,
+    close_curly,
+    if_
 };
 
 optional<int> bin_prec(TokenType type){
     switch(type){
-        case TokenType::sub:
+        case TokenType::minus:
         return 0;
         case TokenType::plus:
         return 1;
         case TokenType::star:
         return 2;
-        case TokenType::div:
+        case TokenType::fslash:
         return 3;
         default:
         return {};
@@ -67,6 +70,10 @@ public:
                 }
                 else if(buff=="let"){
                     tokens.push_back({.type=TokenType::let});
+                    buff.clear();
+                }
+                else if(buff=="if"){
+                    tokens.push_back({.type=TokenType::if_});
                     buff.clear();
                 }
                 else{
@@ -108,11 +115,19 @@ public:
             }
             else if(peek().value()=='-'){
                 consume();
-                tokens.push_back({.type=TokenType::sub});
+                tokens.push_back({.type=TokenType::minus});
             }
             else if(peek().value()=='/'){
                 consume();
-                tokens.push_back({.type=TokenType::div});
+                tokens.push_back({.type=TokenType::fslash});
+            }
+            else if(peek().value()=='{'){
+                consume();
+                tokens.push_back({.type=TokenType::open_curly});
+            }
+            else if(peek().value()=='}'){
+                consume();
+                tokens.push_back({.type=TokenType::close_curly});
             }
             else if(isspace(peek().value())){
                 consume();

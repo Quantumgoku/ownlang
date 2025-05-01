@@ -73,14 +73,25 @@ struct NodeStmtLet
     NodeExpr *expr;
 };
 
-struct Nodestmt
+struct NodeStmt;
+
+struct NodeScope{
+    vector<NodeStmt*> stmts;
+};
+
+struct NodeStmtIf{
+    NodeExpr* expr;
+    NodeScope* scope;
+};
+
+struct NodeStmt
 {
-    variant<NodeStmtExit *, NodeStmtLet *> var;
+    variant<NodeStmtExit *, NodeStmtLet *, NodeScope*, NodeStmtIf*> var;
 };
 
 struct NodeProg
 {
-    vector<Nodestmt *> stmts;
+    vector<NodeStmt *> stmts;
 };
 
 class Parser
@@ -164,12 +175,12 @@ public:
                 multi->lhs = expr_lhs2;
                 multi->rhs = expr_rhs.value();
                 expr->var = multi;
-            }else if(op.type == TokenType::sub){
+            }else if(op.type == TokenType::minus){
                 auto sub = m_allocator.alloc<NodeBinExprSub>();
                 sub->lhs = expr_lhs2;
                 sub->rhs = expr_rhs.value();
                 expr->var = sub;
-            }else if(op.type == TokenType::div){
+            }else if(op.type == TokenType::fslash){
                 auto div = m_allocator.alloc<NodeBinExprDiv>();
                 div->lhs = expr_lhs2;
                 div->rhs = expr_rhs.value();
@@ -182,7 +193,24 @@ public:
         return expr_lhs;
     }
 
-    optional<Nodestmt *> parse_stmt()
+    optional<NodeScope*> parse_scope(){
+        if(!try_consume(TokenType::open_curly).has_value()){
+            return {};
+        }
+        auto stmt_scope = m_allocator.alloc<NodeScope>();
+        while(peek().has_value() && peek().value().type != TokenType::close_curly){
+            if(auto stmt = parse_stmt()){
+                stmt_scope->stmts.push_back(stmt.value());
+            }else{
+                cerr<<"Error parsing statement"<<endl;
+                exit(EXIT_FAILURE);
+            }
+        }
+        try_consume(TokenType::close_curly, "Expected '}' after scope" );
+        return stmt_scope;
+    }
+
+    optional<NodeStmt *> parse_stmt()
     {
         if (peek().has_value() && peek().value().type == TokenType::exit && peek(1).has_value() && peek(1).value().type == TokenType::open_paren)
         {
@@ -200,7 +228,7 @@ public:
             }
             try_consume(TokenType::close_paren, "Expected 'param' after expression" );
             try_consume(TokenType::semi, "Expected stmt 1 ';' after expression" );
-            auto stmt = m_allocator.alloc<Nodestmt>();
+            auto stmt = m_allocator.alloc<NodeStmt>();
             stmt->var = stmt_exit;
             return stmt;
         }
@@ -219,9 +247,39 @@ public:
                 cerr << "Error parsing expression" << endl;
                 exit(EXIT_FAILURE);
             }
-            try_consume(TokenType::semi, "Expected stmt 2 ';' after expression" );
-            auto stmt = m_allocator.alloc<Nodestmt>();
+            try_consume(TokenType::semi, "Expected stmt ';' after expression" );
+            auto stmt = m_allocator.alloc<NodeStmt>();
             stmt->var = stmt_let;
+            return stmt;
+        }
+        else if(peek().has_value() && peek().value().type == TokenType::open_curly){
+            if(auto scope = parse_scope()){
+                auto stmt = m_allocator.alloc<NodeStmt>();
+                stmt->var = scope.value();
+                return stmt;
+            }else{
+                cerr<<"Error parsing scope"<<endl;
+                exit(EXIT_FAILURE);
+            }
+        }
+        else if(auto if_ = try_consume(TokenType::if_)){
+            try_consume(TokenType::open_paren, "Expected '(' after 'if'");
+            auto stmt_if = m_allocator.alloc<NodeStmtIf>();
+            if(auto expr = parse_expr()){
+                stmt_if->expr = expr.value();
+            }else{
+                cerr<<"Error parsing expression"<<endl;
+                exit(EXIT_FAILURE);
+            }
+            try_consume(TokenType::close_paren, "Expected ')' after expression" );
+            if(auto scope = parse_scope()){
+                stmt_if->scope = scope.value();
+            }else{
+                cerr<<"Error parsing scope"<<endl;
+                exit(EXIT_FAILURE);
+            }
+            auto stmt = m_allocator.alloc<NodeStmt>();
+            stmt->var = stmt_if;
             return stmt;
         }
         else

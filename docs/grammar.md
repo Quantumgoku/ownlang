@@ -6,8 +6,12 @@ $$
 \begin{cases}
 exit([\text{expr}]);
 \\
-let\space \text{ident} = [\text{expr}];
+let\space \text{ident} = [\text{expr}]; \\
+\text{if}([\text{Expr}]) \space [\text{Scope}] \\
+[\text{Scope}]
 \end{cases}
+\\
+[\text{Scope}] &\to \{[\text{Stmt}]^*\} 
 \\
 [\text{expr}] &\to 
 \begin{cases}

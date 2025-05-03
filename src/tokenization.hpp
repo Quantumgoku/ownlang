@@ -89,6 +89,13 @@ public:
                 tokens.push_back({.type = TokenType::int_lit, .value = buff});
                 buff.clear();
             }
+            else if(peek().value()=='/' && peek(1).has_value() && peek(1).value()=='/'){
+                consume();
+                consume();
+                while(peek().has_value() && peek().value()!='\n'){
+                    consume();
+                }
+            }
             else if(peek().value()=='('){
                 consume();
                 tokens.push_back({.type=TokenType::open_paren});

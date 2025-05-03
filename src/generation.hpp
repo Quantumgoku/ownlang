@@ -17,7 +17,7 @@ public:
                 gen.push("rax");
             }
             void operator()(const NodeTermIdent* term_ident) const{
-                auto it = find_if(gen.m_vars.cbegin(), gen.m_vars.cend(), [&](const Var& var) {
+                const auto it = find_if(gen.m_vars.cbegin(), gen.m_vars.cend(), [&](const Var& var) {
                     return var.name == term_ident->ident.value.value();
                 });
                 if(it == gen.m_vars.cend()){
